@@ -27,6 +27,7 @@ func (t EventType) String() string {
 }
 
 type Event[P any, T any] struct {
+	Stage   string
 	Type    EventType
 	In      *P
 	Out     *T

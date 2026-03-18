@@ -371,7 +371,7 @@ func TestEventError(t *testing.T) {
 		in,
 		// Task always fails.
 		func(v int) (*int, bool, error) {
-			return nil, false, testError()
+			return nil, false, fmt.Errorf("test error")
 		},
 
 		WithOnEvent(func(e Event[int, int]) {
@@ -396,6 +396,43 @@ func TestEventError(t *testing.T) {
 	holder.Stop()
 }
 
-func testError() error {
-	return fmt.Errorf("test error")
+// TestEventIncludesStage verifies that the Event contains
+// the correct TaskHolder stage name.
+func TestEventIncludesStage(t *testing.T) {
+
+	in := make(chan int, 1)
+
+	const stageName = "MyStage"
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	holder := NewTaskHolder(
+		in,
+
+		func(v int) (*int, bool, error) {
+			return &v, false, nil
+		},
+
+		WithName[int, int](stageName),
+
+		WithWorkers[int, int](1),
+
+		WithOnEvent(func(e Event[int, int]) {
+			if e.Type == Processed {
+				if e.Stage != stageName {
+					t.Fatalf("expected stage '%s', got '%s'", stageName, e.Stage)
+				}
+				wg.Done()
+			}
+		}),
+	)
+
+	holder.Start()
+
+	in <- 42
+
+	wg.Wait()
+
+	holder.Stop()
 }

@@ -38,6 +38,9 @@ import (
 //
 //	workers
 //	  Number of worker goroutines processing the input stream.
+//
+//	onEvent
+//	  Callback for receive events.
 type TaskHolder[P any, T any] struct {
 	name     string
 	interval time.Duration
@@ -63,7 +66,7 @@ func NewTaskHolder[P any, T any](in chan P, task func(P) (*T, bool, error), opts
 func (th *TaskHolder[P, T]) handle(event EventType, p *P, t *T, err error, retry bool) {
 	go func() {
 		if th.onEvent != nil {
-			th.onEvent(Event[P, T]{Type: event, In: p, Out: t, Err: err, IsRetry: retry})
+			th.onEvent(Event[P, T]{Stage: th.name, Type: event, In: p, Out: t, Err: err, IsRetry: retry})
 		}
 	}()
 }
