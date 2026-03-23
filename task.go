@@ -42,20 +42,31 @@ import (
 //	onEvent
 //	  Callback for receive events.
 type TaskHolder[P any, T any] struct {
-	name     string
-	interval time.Duration
-	task     func(P) (*T, bool, error)
-	in       chan P
-	out      chan T
-	workers  int
-	cancel   context.CancelFunc
-	onEvent  OnEvent[P, T]
+	name        string
+	interval    time.Duration
+	task        func(P) (*T, bool, error)
+	in          chan P
+	out         map[chan T]bool
+	workers     int
+	cancel      context.CancelFunc
+	onEvent     OnEvent[P, T]
+	closeOnStop bool
+}
+
+func New[P any, T any](task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
+	in := make(chan P)
+	opts = append(
+		[]Option[P, T]{WithCloseChannelsOnStop[P, T](true)},
+		opts...,
+	)
+	return NewTaskHolder(in, task, opts...)
 }
 
 func NewTaskHolder[P any, T any](in chan P, task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
 	th := &TaskHolder[P, T]{
 		in:   in,
 		task: task,
+		out:  make(map[chan T]bool),
 	}
 	for _, opt := range opts {
 		opt(th)
@@ -80,7 +91,9 @@ func (th *TaskHolder[P, T]) container(p P) {
 		}
 		if result != nil && th.out != nil {
 			th.handle(Emitted, &p, result, nil, retry)
-			th.out <- *result
+			for c, _ := range th.out {
+				c <- *result
+			}
 		}
 		if !retry {
 			th.handle(Processed, &p, result, nil, retry)
@@ -121,4 +134,23 @@ func (th *TaskHolder[P, T]) Stop() {
 	if th.cancel != nil {
 		th.cancel()
 	}
+	if th.closeOnStop {
+		if th.in != nil {
+			close(th.in)
+		}
+		for c, s := range th.out {
+			if s {
+				close(c)
+			}
+		}
+
+	}
+}
+
+func (th *TaskHolder[P, T]) addOut(c chan T) {
+	th.out[c] = false
+}
+
+func (th *TaskHolder[P, T]) getIn() chan P {
+	return th.in
 }

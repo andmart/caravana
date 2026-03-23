@@ -436,3 +436,118 @@ func TestEventIncludesStage(t *testing.T) {
 
 	holder.Stop()
 }
+
+func TestTaskHolder_New_ShouldCloseChannelsOnStopByDefault(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// New() deve configurar closeOnStop = true por padrão.
+	// Isso garante que pipelines simples não vazem goroutines.
+	th := New[int, int](func(p int) (*int, bool, error) {
+		return &p, false, nil
+	})
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	th.Stop()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	// Esperamos que os channels tenham sido fechados.
+	// Leitura deve retornar ok=false imediatamente.
+	select {
+	case _, ok := <-th.in:
+		if ok {
+			t.Fatalf("expected in channel to be closed")
+		}
+	default:
+		t.Fatalf("expected in channel to be closed and readable")
+	}
+}
+
+func TestTaskHolder_NewTaskHolder_ShouldNotCloseChannelsByDefault(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// Quando o usuário fornece o channel,
+	// a lib NÃO deve assumir ownership dele.
+	in := make(chan int)
+	th := NewTaskHolder[int, int](in, func(p int) (*int, bool, error) {
+		return &p, false, nil
+	})
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	th.Stop()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	// O channel NÃO deve ser fechado.
+	select {
+	case _, ok := <-in:
+		if !ok {
+			t.Fatalf("expected in channel to remain open")
+		}
+	default:
+		// channel aberto (sem dados) → OK
+	}
+}
+
+func TestTaskHolder_WithCloseChannelsOnStop_ShouldOverrideDefault(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// Mesmo usando New(), podemos sobrescrever o default.
+	th := New[int, int](
+		func(p int) (*int, bool, error) {
+			return &p, false, nil
+		},
+		WithCloseChannelsOnStop[int, int](false),
+	)
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	th.Stop()
+
+	// --------------------------------------------------
+	// THEN
+	// Channel NÃO deve estar fechado
+	select {
+	case _, ok := <-th.in:
+		if !ok {
+			t.Fatalf("expected in channel to remain open")
+		}
+	default:
+		//ok
+	}
+}
+
+func TestTaskHolder_Stop_CloseChannels_CanCausePanicOnWriters(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// Se closeOnStop=true, writers externos podem dar panic.
+	// Esse teste documenta esse comportamento explicitamente.
+	th := New[int, int](func(p int) (*int, bool, error) {
+		return &p, false, nil
+	})
+
+	th.Stop()
+
+	// --------------------------------------------------
+	// WHEN / THEN
+	// --------------------------------------------------
+	// Escrever em channel fechado deve dar panic.
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic when writing to closed channel")
+		}
+	}()
+
+	th.in <- 1
+}
