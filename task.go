@@ -147,10 +147,14 @@ func (th *TaskHolder[P, T]) Stop() {
 	}
 }
 
-func (th *TaskHolder[P, T]) addOut(c chan T) {
-	th.out[c] = false
+func (th *TaskHolder[P, T]) addOut(c any) {
+	ch, ok := c.(chan T)
+	if !ok {
+		panic("invalid channel type passed to addOut")
+	}
+	th.out[ch] = false
 }
 
-func (th *TaskHolder[P, T]) getIn() chan P {
+func (th *TaskHolder[P, T]) getIn() any {
 	return th.in
 }

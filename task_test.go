@@ -551,3 +551,46 @@ func TestTaskHolder_Stop_CloseChannels_CanCausePanicOnWriters(t *testing.T) {
 
 	th.in <- 1
 }
+
+// TestLink_FanOut verifies that calling Link multiple times with the same
+// source stage correctly accumulates multiple downstream connections
+// (fan-out behavior), instead of overwriting previous links.
+func TestLink_FanOut(t *testing.T) {
+	c := &Caravana{}
+
+	noop := func(in int) (*int, bool, error) {
+		return &in, false, nil
+	}
+
+	th1 := New[int, int](noop)
+	th2 := New[int, int](noop)
+	th3 := New[int, int](noop)
+	th4 := New[int, int](noop)
+
+	c.Link(th1, th2)
+	c.Link(th1, th3)
+	c.Link(th1, th4)
+
+	if len(th1.out) != 3 {
+		t.Fatalf("expected 3 outs, got %d", len(th1.out))
+	}
+
+	// verificar se os canais corretos estão lá
+	found := map[chan int]bool{
+		th2.getIn().(chan int): false,
+		th3.getIn().(chan int): false,
+		th4.getIn().(chan int): false,
+	}
+
+	for c, _ := range th1.out {
+		if _, ok := found[c]; ok {
+			found[c] = true
+		}
+	}
+
+	for ch, ok := range found {
+		if !ok {
+			t.Fatalf("missing connection to channel %v", ch)
+		}
+	}
+}
