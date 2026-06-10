@@ -20,12 +20,12 @@ func (c *Caravana) Link(stages ...stage) {
 		c.stages = make(map[stage]struct{})
 	}
 
-	// registra todos
+	// register all
 	for _, s := range stages {
 		c.stages[s] = struct{}{}
 	}
 
-	// conecta sequencialmente
+	// connect sequence
 	for i := 1; i < len(stages); i++ {
 		prev := stages[i-1]
 		curr := stages[i]
