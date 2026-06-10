@@ -51,6 +51,7 @@ type TaskHolder[P any, T any] struct {
 	cancel      context.CancelFunc
 	onEvent     OnEvent[P, T]
 	closeOnStop bool
+	maxRetries  int
 }
 
 func NewTaskHolder[P any, T any](task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
@@ -84,6 +85,7 @@ func (th *TaskHolder[P, T]) handle(event EventType, p *P, t *T, err error, retry
 
 func (th *TaskHolder[P, T]) container(p P) {
 	th.handle(Received, &p, nil, nil, false)
+	retries := 0
 	for {
 		result, retry, err := th.task(p)
 		if err != nil {
@@ -91,12 +93,17 @@ func (th *TaskHolder[P, T]) container(p P) {
 		}
 		if result != nil && th.out != nil {
 			th.handle(Emitted, &p, result, nil, retry)
-			for c, _ := range th.out {
+			for c := range th.out {
 				c <- *result
 			}
 		}
 		if !retry {
 			th.handle(Processed, &p, result, nil, retry)
+			return
+		}
+		retries++
+		if th.maxRetries > 0 && retries >= th.maxRetries {
+			th.handle(Error, &p, nil, ErrMaxRetriesExceeded, false)
 			return
 		}
 		th.handle(Retry, &p, result, err, retry)

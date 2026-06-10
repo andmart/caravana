@@ -1,6 +1,11 @@
 package caravana
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrMaxRetriesExceeded = errors.New("max retries exceeded")
 
 type EventType int
 

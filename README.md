@@ -197,6 +197,32 @@ Main observability mechanism.
 
 ---
 
+### WithMaxRetries
+
+```go
+WithMaxRetries(n int)
+```
+
+Maximum number of retry cycles allowed per item. When the task keeps returning `retry=true` and this limit is reached, an `Error` event is fired with `ErrMaxRetriesExceeded` and processing of that item stops. The default (`0`) means unlimited retries.
+
+```go
+caravana.WithMaxRetries[int, int](3)
+```
+
+Detecting the limit in an event callback:
+
+```go
+caravana.WithOnEvent(func(e caravana.Event[int, int]) {
+    if e.Type == caravana.Error && errors.Is(e.Err, caravana.ErrMaxRetriesExceeded) {
+        fmt.Println("gave up after max retries")
+    }
+})
+```
+
+> **Retry count semantics:** with `maxRetries=N`, the loop stops on the N-th retry-requested cycle. N−1 `Retry` events fire before `ErrMaxRetriesExceeded` is emitted.
+
+---
+
 ### WithCloseChannelsOnStop
 
 ```go
