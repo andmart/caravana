@@ -1,6 +1,7 @@
 package caravana
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -593,4 +594,159 @@ func TestLink_FanOut(t *testing.T) {
 			t.Fatalf("missing connection to channel %v", ch)
 		}
 	}
+}
+
+// TestWithMaxRetries_ShouldFireErrMaxRetriesExceeded verifies that when a task
+// keeps requesting retry and maxRetries is set, an Error event with
+// ErrMaxRetriesExceeded is eventually fired and processing stops.
+func TestWithMaxRetries_ShouldFireErrMaxRetriesExceeded(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	in := make(chan int, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	var gotErr error
+
+	holder := NewTaskHolderFrom(
+		in,
+		func(v int) (*int, bool, error) {
+			return nil, true, nil // always requests retry
+		},
+		WithMaxRetries[int, int](2),
+		WithOnEvent(func(e Event[int, int]) {
+			if e.Type == Error {
+				gotErr = e.Err
+				wg.Done()
+			}
+		}),
+	)
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	holder.Start()
+	in <- 1
+	wg.Wait()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	if !errors.Is(gotErr, ErrMaxRetriesExceeded) {
+		t.Fatalf("expected ErrMaxRetriesExceeded, got %v", gotErr)
+	}
+
+	holder.Stop()
+}
+
+// TestWithMaxRetries_ShouldCountRetryEvents verifies the exact number of Retry
+// events fired before the limit is hit.
+// With maxRetries=3: the loop stops on the 3rd retry-requested cycle, so
+// exactly 2 Retry events fire before ErrMaxRetriesExceeded is emitted.
+func TestWithMaxRetries_ShouldCountRetryEvents(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	in := make(chan int, 1)
+
+	var retryCount atomic.Int32
+	// Wait for 2 Retry events + 1 Error event (all fired as goroutines).
+	// Using a single Done-per-event ensures we read retryCount only after
+	// all callbacks have executed, avoiding a data race with the Error handler.
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	holder := NewTaskHolderFrom(
+		in,
+		func(v int) (*int, bool, error) {
+			return nil, true, nil
+		},
+		WithMaxRetries[int, int](3),
+		WithOnEvent(func(e Event[int, int]) {
+			switch e.Type {
+			case Retry:
+				retryCount.Add(1)
+				wg.Done()
+			case Error:
+				wg.Done()
+			}
+		}),
+	)
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	holder.Start()
+	in <- 1
+	wg.Wait()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	// maxRetries=3 → limit hits on 3rd cycle, so 2 Retry events fire.
+	if got := retryCount.Load(); got != 2 {
+		t.Fatalf("expected 2 retry events, got %d", got)
+	}
+
+	holder.Stop()
+}
+
+// TestWithMaxRetries_ProcessedFiredWhenTaskSucceedsBeforeLimit verifies that
+// if the task eventually succeeds within the retry limit, Processed fires
+// normally and ErrMaxRetriesExceeded is never emitted.
+func TestWithMaxRetries_ProcessedFiredWhenTaskSucceedsBeforeLimit(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	in := make(chan int, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	calls := 0
+	var gotProcessed atomic.Bool
+	var gotMaxRetriesErr atomic.Bool
+
+	holder := NewTaskHolderFrom(
+		in,
+		func(v int) (*int, bool, error) {
+			calls++
+			if calls < 3 {
+				return nil, true, nil // retry twice, then succeed
+			}
+			return &v, false, nil
+		},
+		WithMaxRetries[int, int](5),
+		WithOnEvent(func(e Event[int, int]) {
+			if e.Type == Processed {
+				gotProcessed.Store(true)
+				wg.Done()
+			}
+			if e.Type == Error && errors.Is(e.Err, ErrMaxRetriesExceeded) {
+				gotMaxRetriesErr.Store(true)
+				wg.Done()
+			}
+		}),
+	)
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	holder.Start()
+	in <- 1
+	wg.Wait()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	if !gotProcessed.Load() {
+		t.Fatal("expected Processed event, got none")
+	}
+	if gotMaxRetriesErr.Load() {
+		t.Fatal("expected no ErrMaxRetriesExceeded, but got one")
+	}
+
+	holder.Stop()
 }

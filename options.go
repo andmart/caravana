@@ -47,3 +47,9 @@ func WithCloseChannelsOnStop[P any, T any](shouldClose bool) Option[P, T] {
 		th.closeOnStop = shouldClose
 	}
 }
+
+func WithMaxRetries[P any, T any](n int) Option[P, T] {
+	return func(th *TaskHolder[P, T]) {
+		th.maxRetries = n
+	}
+}
