@@ -9,7 +9,6 @@ The library is **simple, type-safe, and unopinionated**: it runs the pipeline �
 ## Example
 
 ```go
-
 package main
 
 import (
@@ -21,13 +20,8 @@ import (
 )
 
 func main() {
-
-	in := make(chan int)
-	mid := make(chan int)
-
 	const total = 5
 	var done atomic.Uint64
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -35,12 +29,10 @@ func main() {
 	// Stage 1: multiply by 2
 	// -----------------------------
 	stage1 := caravana.NewTaskHolder(
-		in,
-
 		func(v int) (*int, bool, error) {
-			return new(v * 2), false, nil
+			r := v * 2
+			return &r, false, nil
 		},
-		caravana.WithOutput[int, int](mid),
 	)
 
 	// -----------------------------
@@ -48,18 +40,13 @@ func main() {
 	// -----------------------------
 	var stage2 *caravana.TaskHolder[int, int]
 	stage2 = caravana.NewTaskHolder(
-		mid,
 		func(v int) (*int, bool, error) {
 			fmt.Println(v + 1)
 			return nil, false, nil
 		},
 		caravana.WithOnEvent(func(e caravana.Event[int, int]) {
-
 			if e.Type == caravana.Processed {
-
-				n := done.Add(1)
-
-				if n == total {
+				if done.Add(1) == total {
 					stage2.Stop()
 					stage1.Stop()
 					wg.Done()
@@ -68,16 +55,16 @@ func main() {
 		}),
 	)
 
-	// start pipeline
-	stage1.Start()
-	stage2.Start()
+	// wire and start pipeline
+	c := &caravana.Caravana{}
+	c.Link(stage1, stage2)
+	c.Start()
 
 	// send data
 	for i := 1; i <= total; i++ {
-		in <- i
+		stage1.Send(i)
 	}
 
-	// wait until pipeline completes
 	wg.Wait()
 }
 ```
@@ -89,6 +76,7 @@ func main() {
 - 🔗 Pipeline composition via channels
 - 📡 Event-driven observability
 - 🧠 Fully generic (`TaskHolder[P, T]`)
+- 🌿 Fan-out: one stage can emit to multiple downstream stages
 - 🧼 No built-in logging or metrics
 
 ---
@@ -107,11 +95,60 @@ A pipeline is composed of **TaskHolders**, where each one:
 
 - reads from an input channel
 - executes a task
-- optionally emits to an output channel
+- optionally emits to one or more output channels
 - triggers events
 
 ```
 input → TaskHolder → TaskHolder → TaskHolder
+                  ↘ TaskHolder  (fan-out)
+```
+
+---
+
+## 🏗️ Constructors
+
+### NewTaskHolder
+
+```go
+NewTaskHolder[P, T](task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T]
+```
+
+Creates a `TaskHolder` with an auto-managed input channel. Closes the input channel automatically on `Stop()`. Use this when you don't need to share the input channel externally.
+
+---
+
+### NewTaskHolderFrom
+
+```go
+NewTaskHolderFrom[P, T](in chan P, task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T]
+```
+
+Creates a `TaskHolder` from an existing channel. The caller retains ownership of the channel; it is **not** closed on `Stop()`. Use this when you manage the channel lifecycle yourself or share it across multiple holders.
+
+---
+
+## 🔗 Caravana (pipeline orchestrator)
+
+`Caravana` wires and manages a set of stages as a unit.
+
+```go
+c := &caravana.Caravana{}
+c.Link(stage1, stage2, stage3) // connect sequentially
+c.Start()                      // start all stages
+c.Stop()                       // stop all stages
+```
+
+### Link
+
+```go
+func (c *Caravana) Link(stages ...stage)
+```
+
+Connects stages in sequence: each stage's output is wired to the next stage's input. Can be called multiple times to create fan-out topologies:
+
+```go
+c.Link(stage1, stage2) // stage1 → stage2
+c.Link(stage1, stage3) // stage1 → stage2 and stage1 → stage3
 ```
 
 ---
@@ -126,7 +163,7 @@ input → TaskHolder → TaskHolder → TaskHolder
 WithOutput(chan T)
 ```
 
-Defines the output channel.
+Adds an output channel. Can be called multiple times to fan-out to several downstream channels.
 
 ---
 
@@ -160,6 +197,16 @@ Main observability mechanism.
 
 ---
 
+### WithCloseChannelsOnStop
+
+```go
+WithCloseChannelsOnStop(bool)
+```
+
+Controls whether the input and output channels are closed when `Stop()` is called. Defaults to `true` for `NewTaskHolder` and `false` for `NewTaskHolderFrom`.
+
+---
+
 ## 📡 Events
 
 ```go
@@ -189,6 +236,13 @@ caravana.WithOnEvent(func(e caravana.Event[int,int]) {
         fmt.Println("error:", e.Err)
     }
 })
+```
+
+`Event` also implements `String()` for convenient logging:
+
+```go
+fmt.Println(e.String())
+// Event{Stage: stage1, Type: Processed, In: 42, Out: <nil>, Err: <nil>, IsRetry: false}
 ```
 
 More in examples.
