@@ -53,16 +53,16 @@ type TaskHolder[P any, T any] struct {
 	closeOnStop bool
 }
 
-func New[P any, T any](task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
+func NewTaskHolder[P any, T any](task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
 	in := make(chan P)
 	opts = append(
 		[]Option[P, T]{WithCloseChannelsOnStop[P, T](true)},
 		opts...,
 	)
-	return NewTaskHolder(in, task, opts...)
+	return NewTaskHolderFrom(in, task, opts...)
 }
 
-func NewTaskHolder[P any, T any](in chan P, task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
+func NewTaskHolderFrom[P any, T any](in chan P, task func(P) (*T, bool, error), opts ...Option[P, T]) *TaskHolder[P, T] {
 	th := &TaskHolder[P, T]{
 		in:   in,
 		task: task,

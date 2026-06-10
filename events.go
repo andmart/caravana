@@ -1,5 +1,7 @@
 package caravana
 
+import "fmt"
+
 type EventType int
 
 const (
@@ -36,3 +38,8 @@ type Event[P any, T any] struct {
 }
 
 type OnEvent[P any, T any] func(Event[P, T])
+
+func (e *Event[P, T]) String() string {
+	return fmt.Sprintf("Event{Stage: %s, Type: %s, In: %v, Out: %v, Err: %v, IsRetry: %v}",
+		e.Stage, e.Type, e.In, e.Out, e.Err, e.IsRetry)
+}

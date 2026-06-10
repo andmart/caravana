@@ -20,13 +20,13 @@ func main() {
 		return new(v + 10), false, nil
 	}
 
-	multiplyHolder := caravana.NewTaskHolder(
+	multiplyHolder := caravana.NewTaskHolderFrom(
 		input,
 		multiplyTask,
 		caravana.WithOutput[int, int](stage1),
 	)
 
-	addHolder := caravana.NewTaskHolder(
+	addHolder := caravana.NewTaskHolderFrom(
 		stage1,
 		addTask,
 		caravana.WithOutput[int, int](output),

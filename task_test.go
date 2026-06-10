@@ -23,7 +23,7 @@ func TestTaskHolder_Process(t *testing.T) {
 		return new(v * 2), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -69,7 +69,7 @@ func TestTaskHolder_Retry(t *testing.T) {
 		return new(v), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -107,7 +107,7 @@ func TestTaskHolder_Workers(t *testing.T) {
 		return new(v), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -150,7 +150,7 @@ func TestTaskHolder_DefaultWorker(t *testing.T) {
 		return new(v + 1), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -185,7 +185,7 @@ func TestTaskHolder_Stop(t *testing.T) {
 		return new(v), false, nil
 	}
 
-	holder := NewTaskHolder(in, task, WithOutput[int, int](out))
+	holder := NewTaskHolderFrom(in, task, WithOutput[int, int](out))
 
 	holder.Start()
 
@@ -223,7 +223,7 @@ func TestEventReceived(t *testing.T) {
 	// The WaitGroup ensures the test waits until the event fires.
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 
 		// Simple task that returns the input value unchanged.
@@ -272,7 +272,7 @@ func TestEventEmitted(t *testing.T) {
 
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		func(v int) (*int, bool, error) {
 			return &v, false, nil
@@ -318,7 +318,7 @@ func TestEventRetry(t *testing.T) {
 
 	first := true
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		// First execution triggers a retry.
 		func(v int) (*int, bool, error) {
@@ -367,7 +367,7 @@ func TestEventError(t *testing.T) {
 
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		// Task always fails.
 		func(v int) (*int, bool, error) {
@@ -407,7 +407,7 @@ func TestEventIncludesStage(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 
 		func(v int) (*int, bool, error) {
@@ -443,7 +443,7 @@ func TestTaskHolder_New_ShouldCloseChannelsOnStopByDefault(t *testing.T) {
 	// --------------------------------------------------
 	// New() deve configurar closeOnStop = true por padrão.
 	// Isso garante que pipelines simples não vazem goroutines.
-	th := New[int, int](func(p int) (*int, bool, error) {
+	th := NewTaskHolder[int, int](func(p int) (*int, bool, error) {
 		return &p, false, nil
 	})
 
@@ -474,7 +474,7 @@ func TestTaskHolder_NewTaskHolder_ShouldNotCloseChannelsByDefault(t *testing.T) 
 	// Quando o usuário fornece o channel,
 	// a lib NÃO deve assumir ownership dele.
 	in := make(chan int)
-	th := NewTaskHolder[int, int](in, func(p int) (*int, bool, error) {
+	th := NewTaskHolderFrom[int, int](in, func(p int) (*int, bool, error) {
 		return &p, false, nil
 	})
 
@@ -502,7 +502,7 @@ func TestTaskHolder_WithCloseChannelsOnStop_ShouldOverrideDefault(t *testing.T) 
 	// GIVEN
 	// --------------------------------------------------
 	// Mesmo usando New(), podemos sobrescrever o default.
-	th := New[int, int](
+	th := NewTaskHolder[int, int](
 		func(p int) (*int, bool, error) {
 			return &p, false, nil
 		},
@@ -533,7 +533,7 @@ func TestTaskHolder_Stop_CloseChannels_CanCausePanicOnWriters(t *testing.T) {
 	// --------------------------------------------------
 	// Se closeOnStop=true, writers externos podem dar panic.
 	// Esse teste documenta esse comportamento explicitamente.
-	th := New[int, int](func(p int) (*int, bool, error) {
+	th := NewTaskHolder[int, int](func(p int) (*int, bool, error) {
 		return &p, false, nil
 	})
 
@@ -562,10 +562,10 @@ func TestLink_FanOut(t *testing.T) {
 		return &in, false, nil
 	}
 
-	th1 := New[int, int](noop)
-	th2 := New[int, int](noop)
-	th3 := New[int, int](noop)
-	th4 := New[int, int](noop)
+	th1 := NewTaskHolder[int, int](noop)
+	th2 := NewTaskHolder[int, int](noop)
+	th3 := NewTaskHolder[int, int](noop)
+	th4 := NewTaskHolder[int, int](noop)
 
 	c.Link(th1, th2)
 	c.Link(th1, th3)
