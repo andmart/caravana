@@ -23,7 +23,7 @@ func TestTaskHolder_Process(t *testing.T) {
 		return new(v * 2), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -69,7 +69,7 @@ func TestTaskHolder_Retry(t *testing.T) {
 		return new(v), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -107,7 +107,7 @@ func TestTaskHolder_Workers(t *testing.T) {
 		return new(v), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -150,7 +150,7 @@ func TestTaskHolder_DefaultWorker(t *testing.T) {
 		return new(v + 1), false, nil
 	}
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		task,
 		WithOutput[int, int](out),
@@ -185,7 +185,7 @@ func TestTaskHolder_Stop(t *testing.T) {
 		return new(v), false, nil
 	}
 
-	holder := NewTaskHolder(in, task, WithOutput[int, int](out))
+	holder := NewTaskHolderFrom(in, task, WithOutput[int, int](out))
 
 	holder.Start()
 
@@ -223,7 +223,7 @@ func TestEventReceived(t *testing.T) {
 	// The WaitGroup ensures the test waits until the event fires.
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 
 		// Simple task that returns the input value unchanged.
@@ -272,7 +272,7 @@ func TestEventEmitted(t *testing.T) {
 
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		func(v int) (*int, bool, error) {
 			return &v, false, nil
@@ -318,7 +318,7 @@ func TestEventRetry(t *testing.T) {
 
 	first := true
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		// First execution triggers a retry.
 		func(v int) (*int, bool, error) {
@@ -367,7 +367,7 @@ func TestEventError(t *testing.T) {
 
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 		// Task always fails.
 		func(v int) (*int, bool, error) {
@@ -407,7 +407,7 @@ func TestEventIncludesStage(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	holder := NewTaskHolder(
+	holder := NewTaskHolderFrom(
 		in,
 
 		func(v int) (*int, bool, error) {
@@ -435,4 +435,162 @@ func TestEventIncludesStage(t *testing.T) {
 	wg.Wait()
 
 	holder.Stop()
+}
+
+func TestTaskHolder_New_ShouldCloseChannelsOnStopByDefault(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// New() deve configurar closeOnStop = true por padrão.
+	// Isso garante que pipelines simples não vazem goroutines.
+	th := NewTaskHolder[int, int](func(p int) (*int, bool, error) {
+		return &p, false, nil
+	})
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	th.Stop()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	// Esperamos que os channels tenham sido fechados.
+	// Leitura deve retornar ok=false imediatamente.
+	select {
+	case _, ok := <-th.in:
+		if ok {
+			t.Fatalf("expected in channel to be closed")
+		}
+	default:
+		t.Fatalf("expected in channel to be closed and readable")
+	}
+}
+
+func TestTaskHolder_NewTaskHolder_ShouldNotCloseChannelsByDefault(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// Quando o usuário fornece o channel,
+	// a lib NÃO deve assumir ownership dele.
+	in := make(chan int)
+	th := NewTaskHolderFrom[int, int](in, func(p int) (*int, bool, error) {
+		return &p, false, nil
+	})
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	th.Stop()
+
+	// --------------------------------------------------
+	// THEN
+	// --------------------------------------------------
+	// O channel NÃO deve ser fechado.
+	select {
+	case _, ok := <-in:
+		if !ok {
+			t.Fatalf("expected in channel to remain open")
+		}
+	default:
+		// channel aberto (sem dados) → OK
+	}
+}
+
+func TestTaskHolder_WithCloseChannelsOnStop_ShouldOverrideDefault(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// Mesmo usando New(), podemos sobrescrever o default.
+	th := NewTaskHolder[int, int](
+		func(p int) (*int, bool, error) {
+			return &p, false, nil
+		},
+		WithCloseChannelsOnStop[int, int](false),
+	)
+
+	// --------------------------------------------------
+	// WHEN
+	// --------------------------------------------------
+	th.Stop()
+
+	// --------------------------------------------------
+	// THEN
+	// Channel NÃO deve estar fechado
+	select {
+	case _, ok := <-th.in:
+		if !ok {
+			t.Fatalf("expected in channel to remain open")
+		}
+	default:
+		//ok
+	}
+}
+
+func TestTaskHolder_Stop_CloseChannels_CanCausePanicOnWriters(t *testing.T) {
+	// --------------------------------------------------
+	// GIVEN
+	// --------------------------------------------------
+	// Se closeOnStop=true, writers externos podem dar panic.
+	// Esse teste documenta esse comportamento explicitamente.
+	th := NewTaskHolder[int, int](func(p int) (*int, bool, error) {
+		return &p, false, nil
+	})
+
+	th.Stop()
+
+	// --------------------------------------------------
+	// WHEN / THEN
+	// --------------------------------------------------
+	// Escrever em channel fechado deve dar panic.
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic when writing to closed channel")
+		}
+	}()
+
+	th.in <- 1
+}
+
+// TestLink_FanOut verifies that calling Link multiple times with the same
+// source stage correctly accumulates multiple downstream connections
+// (fan-out behavior), instead of overwriting previous links.
+func TestLink_FanOut(t *testing.T) {
+	c := &Caravana{}
+
+	noop := func(in int) (*int, bool, error) {
+		return &in, false, nil
+	}
+
+	th1 := NewTaskHolder[int, int](noop)
+	th2 := NewTaskHolder[int, int](noop)
+	th3 := NewTaskHolder[int, int](noop)
+	th4 := NewTaskHolder[int, int](noop)
+
+	c.Link(th1, th2)
+	c.Link(th1, th3)
+	c.Link(th1, th4)
+
+	if len(th1.out) != 3 {
+		t.Fatalf("expected 3 outs, got %d", len(th1.out))
+	}
+
+	// verificar se os canais corretos estão lá
+	found := map[chan int]bool{
+		th2.getIn().(chan int): false,
+		th3.getIn().(chan int): false,
+		th4.getIn().(chan int): false,
+	}
+
+	for c, _ := range th1.out {
+		if _, ok := found[c]; ok {
+			found[c] = true
+		}
+	}
+
+	for ch, ok := range found {
+		if !ok {
+			t.Fatalf("missing connection to channel %v", ch)
+		}
+	}
 }

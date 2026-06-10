@@ -26,7 +26,7 @@ func WithInterval[P any, T any](d time.Duration) Option[P, T] {
 
 func WithOutput[P any, T any](ch chan T) Option[P, T] {
 	return func(th *TaskHolder[P, T]) {
-		th.out = ch
+		th.out[ch] = true
 	}
 }
 
@@ -39,5 +39,11 @@ func WithWorkers[P any, T any](n int) Option[P, T] {
 func WithOnEvent[P any, T any](cb OnEvent[P, T]) Option[P, T] {
 	return func(th *TaskHolder[P, T]) {
 		th.onEvent = cb
+	}
+}
+
+func WithCloseChannelsOnStop[P any, T any](shouldClose bool) Option[P, T] {
+	return func(th *TaskHolder[P, T]) {
+		th.closeOnStop = shouldClose
 	}
 }

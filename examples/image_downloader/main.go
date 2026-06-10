@@ -41,7 +41,7 @@ func main() {
 	// -----------------------------
 	// FetchCats
 	// -----------------------------
-	fetchTask := caravana.NewTaskHolder(
+	fetchTask := caravana.NewTaskHolderFrom(
 		inputChannel,
 		func(tag string) (*string, bool, error) {
 
@@ -56,7 +56,7 @@ func main() {
 	// -----------------------------
 	// DownloadCats
 	// -----------------------------
-	downloadTask := caravana.NewTaskHolder(
+	downloadTask := caravana.NewTaskHolderFrom(
 		urlsChannel,
 		func(url string) (*Image, bool, error) {
 			resp, err := http.Get(url)
@@ -82,7 +82,7 @@ func main() {
 	// SaveCats
 	// -----------------------------
 	var save *caravana.TaskHolder[Image, string]
-	save = caravana.NewTaskHolder[Image, string](
+	save = caravana.NewTaskHolderFrom[Image, string](
 		imagesChannel,
 		func(img Image) (*string, bool, error) {
 			name := fmt.Sprintf("%s.jpg", img.name)
